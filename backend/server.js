@@ -22,10 +22,9 @@ const webhookRoutes = require("./routes/webhookRoutes");
 const app = express();
 
 // Only connect to MongoDB when this file is actually run (not when required by tests)
-if (require.main === module) {
+if (require.main === module || process.env.VERCEL) {
   connectDB();
 }
-
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:3000", credentials: true }));
 
