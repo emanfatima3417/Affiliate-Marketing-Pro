@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Design system: "Ledger" - a marketplace built around a shared commission
+  ledger between sellers, affiliates, and buyers. Ink-navy for trust,
+  a signal-green accent reserved only for money/earnings states (never
+  decorative), and a warm paper background instead of stark white.
+*/
+
+@layer base {
+  :root {
+    --background: 36 28% 97%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --primary: 222 47% 18%;
+    --primary-foreground: 36 28% 97%;
+
+    --secondary: 36 20% 92%;
+    --secondary-foreground: 222 47% 18%;
+
+    --muted: 36 16% 90%;
+    --muted-foreground: 222 15% 40%;
+
+    --accent: 152 60% 32%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 6 78% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 36 16% 87%;
+    --input: 36 16% 87%;
+    --ring: 222 47% 18%;
+
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 222 47% 8%;
+    --foreground: 36 20% 94%;
+
+    --card: 222 40% 11%;
+    --card-foreground: 36 20% 94%;
+
+    --primary: 36 28% 94%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 222 30% 16%;
+    --secondary-foreground: 36 20% 94%;
+
+    --muted: 222 25% 16%;
+    --muted-foreground: 222 12% 65%;
+
+    --accent: 152 55% 45%;
+    --accent-foreground: 222 47% 8%;
+
+    --destructive: 6 70% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 222 25% 20%;
+    --input: 222 25% 20%;
+    --ring: 36 28% 80%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-body;
+    font-feature-settings: "cv11", "ss01";
+  }
+  h1, h2, h3, h4 {
+    @apply font-display;
+    letter-spacing: -0.02em;
+  }
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Signature element: a dashed "ledger" connector used to visualize the
+     product -> link -> sale -> commission chain across the marketing site. */
+  .ledger-connector {
+    position: relative;
+  }
+  .ledger-connector::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    border-top: 2px dashed hsl(var(--border));
+    z-index: 0;
+  }
+}
+
+::selection {
+  background: hsl(var(--accent) / 0.25);
+}
