@@ -119,6 +119,18 @@ const updateMe = asyncHandler(async (req, res) => {
   });
 
   if (req.body.password) {
+    if (!req.body.currentPassword) {
+      res.status(400);
+      throw new Error("Current password is required to set a new password");
+    }
+
+    const userWithPassword = await User.findById(req.user._id).select("+password");
+    const matches = await userWithPassword.matchPassword(req.body.currentPassword);
+    if (!matches) {
+      res.status(401);
+      throw new Error("Current password is incorrect");
+    }
+
     req.user.password = req.body.password;
   }
 
