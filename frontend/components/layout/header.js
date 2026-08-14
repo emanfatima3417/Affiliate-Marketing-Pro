@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ShoppingCart, Menu, X, LayoutDashboard, LogOut, Link2 } from "lucide-react";
+import { ShoppingCart, Menu, X, LayoutDashboard, LogOut, Link2, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
 import { useAuth } from "@/context/auth-context";
@@ -58,7 +58,7 @@ export function Header() {
             </Button>
           </Link>
 
-          {user ? (
+         {user ? (
             <div className="hidden items-center gap-1.5 md:flex">
               <Link href={roleDashboard[user.role] || "/dashboard/customer"}>
                 <Button variant="secondary" size="sm" className="gap-1.5">
@@ -66,11 +66,17 @@ export function Header() {
                   Dashboard
                 </Button>
               </Link>
+              <Link href="/account">
+                <Button variant="ghost" size="icon" aria-label="Account settings">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </Link>
               <Button variant="ghost" size="icon" onClick={logout} aria-label="Log out">
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>
           ) : (
+            
             <div className="hidden items-center gap-1.5 md:flex">
               <Link href="/login">
                 <Button variant="ghost" size="sm">
@@ -102,6 +108,9 @@ export function Header() {
               <>
                 <Link href={roleDashboard[user.role] || "/dashboard/customer"} className="text-sm font-semibold" onClick={() => setOpen(false)}>
                   Dashboard ({initials(user.name)})
+                </Link>
+                <Link href="/account" className="text-sm font-medium text-muted-foreground" onClick={() => setOpen(false)}>
+                  Account settings
                 </Link>
                 <button onClick={logout} className="text-left text-sm text-muted-foreground">
                   Log out
