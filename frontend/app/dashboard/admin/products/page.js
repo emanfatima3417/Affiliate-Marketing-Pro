@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { adminNav } from "@/components/shared/dashboard-nav";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import api from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/toast-store";
-import { Loader2, Search, Check } from "lucide-react";
+import { Loader2, Search, Check, Pencil } from "lucide-react";
 
 export default function AdminInventoryPage() {
   const [products, setProducts] = useState(null);
@@ -62,13 +63,18 @@ export default function AdminInventoryPage() {
                 <th className="p-3">Status</th>
                 <th className="p-3">Commission %</th>
                 <th className="p-3" />
+                <th className="p-3" />
               </tr>
             </thead>
             <tbody>
               {filtered.map((p) => (
                 <tr key={p._id} className="border-b last:border-0">
                   <td className="p-3 font-medium">{p.title}</td>
-                  <td className="p-3 text-muted-foreground">{p.seller?.storeName || p.seller?.name}</td>
+                  <td className="p-3 text-muted-foreground">
+                    {p.seller?.storeName || p.seller?.name || (
+                      <span className="italic text-muted-foreground/60">Unassigned</span>
+                    )}
+                  </td>
                   <td className="p-3 tabular-nums">{formatCurrency(p.price)}</td>
                   <td className="p-3">
                     <Badge variant={p.stock < 100 ? "destructive" : "secondary"}>{p.stock}</Badge>
@@ -92,6 +98,13 @@ export default function AdminInventoryPage() {
                         <Check className="h-3.5 w-3.5" />
                       </Button>
                     )}
+                  </td>
+                  <td className="p-3">
+                    <Link href={`/dashboard/seller/products/${p._id}/edit`}>
+                      <Button size="icon" variant="ghost" aria-label="Edit product">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </Link>
                   </td>
                 </tr>
               ))}
