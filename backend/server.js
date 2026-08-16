@@ -18,6 +18,7 @@ const sellerRoutes = require("./routes/sellerRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const webhookRoutes = require("./routes/webhookRoutes");
+const giftCardRoutes = require("./routes/giftCardRoutes");
 
 const app = express();
 
@@ -53,6 +54,7 @@ app.use("/api/affiliates", affiliateRoutes);
 app.use("/api/sellers", sellerRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/gift-cards", giftCardRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
