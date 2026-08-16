@@ -8,7 +8,6 @@ const orderItemSchema = new mongoose.Schema(
     image: String,
     price: { type: Number, required: true },
     quantity: { type: Number, required: true, min: 1 },
-    // affiliate attribution captured per line item at time of purchase
     affiliate: { type: mongoose.Schema.Types.ObjectId, ref: "Affiliate", default: null },
     commissionPercent: { type: Number, default: 0 },
     commissionAmount: { type: Number, default: 0 },
@@ -39,6 +38,8 @@ const orderSchema = new mongoose.Schema(
       default: "pending",
     },
     stripePaymentIntentId: { type: String, default: "" },
+    giftCardCode: { type: String, default: "" },
+    giftCardAmountApplied: { type: Number, default: 0 },
     status: {
       type: String,
       enum: ["processing", "shipped", "delivered", "cancelled"],
