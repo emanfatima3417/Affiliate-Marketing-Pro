@@ -6,19 +6,33 @@ const Commission = require("../models/Commission");
 const Transaction = require("../models/Transaction");
 const Click = require("../models/Click");
 const User = require("../models/User");
+const GiftCard = require("../models/GiftCard");
 const calcCommission = require("../utils/commissionCalc");
 const stripe = require("../config/stripe");
 const { sendEmail } = require("../config/email");
 const { orderConfirmationEmail, commissionEarnedEmail } = require("../utils/emailTemplates");
 const { nanoid } = require("nanoid");
 
+// Looks up a gift card by code and returns how much of `total` it can cover
+// right now. Read-only - does not touch the balance. Returns null if the
+// code doesn't exist or isn't currently usable (expired/disabled/depleted).
+async function previewGiftCard(code, total) {
+  if (!code) return null;
+  const giftCard = await GiftCard.findOne({ code: code.trim().toUpperCase() });
+  if (!giftCard || !giftCard.isUsable()) return null;
+  const applicable = Number(Math.min(giftCard.balance, total).toFixed(2));
+  return { giftCard, applicable, remaining: Number((total - applicable).toFixed(2)) };
+}
+
 // @desc    Create a Stripe PaymentIntent for the current cart. The amount is
 //          always recomputed server-side from real product prices - the
-//          client can never dictate what gets charged.
+//          client can never dictate what gets charged. If a gift card code
+//          is supplied, the PaymentIntent is created only for whatever's
+//          left over after the gift card's contribution.
 // @route   POST /api/orders/create-payment-intent
 // @access  Private
 const createPaymentIntent = asyncHandler(async (req, res) => {
-  const { items, affiliateCode } = req.body;
+  const { items, affiliateCode, giftCardCode } = req.body;
 
   if (!items || items.length === 0) {
     res.status(400);
@@ -40,42 +54,72 @@ const createPaymentIntent = asyncHandler(async (req, res) => {
   }
   total = Number(total.toFixed(2));
 
+  let giftCardApplied = 0;
+  let remaining = total;
+
+  if (giftCardCode) {
+    const preview = await previewGiftCard(giftCardCode, total);
+    if (!preview) {
+      res.status(400);
+      throw new Error("This gift card code is invalid or can't be used.");
+    }
+    giftCardApplied = preview.applicable;
+    remaining = preview.remaining;
+  }
+
+  if (remaining <= 0) {
+    return res.json({
+      success: true,
+      clientSecret: null,
+      giftCardFullyCovers: true,
+      amount: total,
+      giftCardApplied,
+      remaining: 0,
+    });
+  }
+
   if (!stripe) {
-    // Payments provider not configured - useful for local/dev testing without
-    // real Stripe keys. The order will still be created but flagged as a
-    // mock payment so it's never confused with a verified real charge.
-    return res.json({ success: true, clientSecret: null, mock: true, amount: total });
+    return res.json({ success: true, clientSecret: null, mock: true, amount: total, giftCardApplied, remaining });
   }
 
   const paymentIntent = await stripe.paymentIntents.create({
-    amount: Math.round(total * 100),
+    amount: Math.round(remaining * 100),
     currency: "usd",
     automatic_payment_methods: { enabled: true },
     metadata: {
       userId: req.user._id.toString(),
       affiliateCode: affiliateCode || "",
+      giftCardCode: giftCardCode || "",
     },
   });
 
-  res.json({ success: true, clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id, amount: total });
+  res.json({
+    success: true,
+    clientSecret: paymentIntent.client_secret,
+    paymentIntentId: paymentIntent.id,
+    amount: total,
+    giftCardApplied,
+    remaining,
+  });
 });
 
-// @desc    Place an order (checkout). Applies affiliate attribution + commissions.
-//          When Stripe is configured, this REQUIRES a stripePaymentIntentId
-//          and independently verifies with Stripe that it succeeded and was
-//          charged for the correct amount before creating the order - the
-//          client's word alone is never enough to mark something "paid".
+// @desc    Place an order (checkout). Applies affiliate attribution +
+//          commissions, and gift card redemption if a code was supplied.
+//          When Stripe is configured and the order isn't fully covered by a
+//          gift card, this REQUIRES a stripePaymentIntentId and
+//          independently verifies with Stripe that it succeeded and was
+//          charged for exactly the remaining amount - the client's word
+//          alone is never enough to mark something "paid".
 // @route   POST /api/orders
 // @access  Private (customer)
 const createOrder = asyncHandler(async (req, res) => {
-  const { items, shippingAddress, paymentMethod, stripePaymentIntentId, affiliateCode } = req.body;
+  const { items, shippingAddress, paymentMethod, stripePaymentIntentId, affiliateCode, giftCardCode } = req.body;
 
   if (!items || items.length === 0) {
     res.status(400);
     throw new Error("No order items provided");
   }
 
-  // Prevent double-submission from creating two orders for one payment
   if (stripePaymentIntentId) {
     const existing = await Order.findOne({ stripePaymentIntentId });
     if (existing) {
@@ -83,7 +127,6 @@ const createOrder = asyncHandler(async (req, res) => {
     }
   }
 
-  // Resolve affiliate once for the whole cart if a ref code was supplied
   let affiliate = null;
   if (affiliateCode) {
     affiliate = await Affiliate.findOne({ code: affiliateCode, status: "active" });
@@ -127,51 +170,100 @@ const createOrder = asyncHandler(async (req, res) => {
 
   const total = Number(subtotal.toFixed(2));
 
-  // ---- Payment verification (the security-critical part) ----
+  let giftCard = null;
+  let giftCardApplied = 0;
+
+  if (giftCardCode) {
+    const preview = await previewGiftCard(giftCardCode, total);
+    if (!preview) {
+      res.status(400);
+      throw new Error("This gift card code is invalid or can't be used.");
+    }
+    giftCardApplied = preview.applicable;
+
+    const updatedGiftCard = await GiftCard.findOneAndUpdate(
+      { _id: preview.giftCard._id, balance: { $gte: giftCardApplied } },
+      { $inc: { balance: -giftCardApplied } },
+      { new: true }
+    );
+
+    if (!updatedGiftCard) {
+      res.status(409);
+      throw new Error("This gift card was just used elsewhere. Please refresh and try again.");
+    }
+
+    if (updatedGiftCard.balance <= 0 && updatedGiftCard.status === "active") {
+      updatedGiftCard.status = "depleted";
+      await updatedGiftCard.save();
+    }
+
+    giftCard = updatedGiftCard;
+  }
+
+  const remaining = Number((total - giftCardApplied).toFixed(2));
+
+  const rollbackGiftCard = async () => {
+    if (!giftCard || giftCardApplied <= 0) return;
+    try {
+      await GiftCard.findByIdAndUpdate(giftCard._id, {
+        $inc: { balance: giftCardApplied },
+        $set: { status: "active" },
+      });
+    } catch (err) {
+      console.error(`[gift card rollback] failed for code ${giftCardCode}: ${err.message}`);
+    }
+  };
+
   let paymentStatus = "pending";
 
-  if (stripe) {
-    // Real Stripe is configured: a verified, succeeded PaymentIntent for the
-    // exact order total is mandatory. Nothing here is taken on the client's
-    // word - if this fails, no order is created and no stock is deducted.
+  if (remaining <= 0) {
+    paymentStatus = "paid";
+  } else if (stripe) {
     if (!stripePaymentIntentId) {
+      await rollbackGiftCard();
       res.status(402);
       throw new Error("Payment is required to place this order");
     }
 
-    const paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
+    let paymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
+    } catch (err) {
+      await rollbackGiftCard();
+      throw err;
+    }
 
     if (!paymentIntent || paymentIntent.status !== "succeeded") {
+      await rollbackGiftCard();
       res.status(402);
       throw new Error("Payment has not been completed successfully");
     }
 
-    const expectedCents = Math.round(total * 100);
+    const expectedCents = Math.round(remaining * 100);
     if (paymentIntent.amount !== expectedCents) {
+      await rollbackGiftCard();
       res.status(402);
       throw new Error("Payment amount does not match order total");
     }
 
     if (paymentIntent.metadata?.userId && paymentIntent.metadata.userId !== req.user._id.toString()) {
+      await rollbackGiftCard();
       res.status(403);
       throw new Error("This payment does not belong to the current user");
     }
 
     paymentStatus = "paid";
   } else {
-    // No Stripe key configured on the server - demo/dev mode only. This
-    // branch should never be reachable in a real deployment; document that
-    // loudly rather than silently marking every order "paid".
     console.warn(
       "[orders] STRIPE_SECRET_KEY is not set - orders are being auto-marked as paid without real payment verification. Do not run production traffic in this state."
     );
     paymentStatus = "paid";
   }
 
-  // Only now that payment is verified do we touch inventory.
   for (const item of orderItems) {
     const product = await Product.findById(item.product);
     if (product.stock < item.quantity) {
+      await rollbackGiftCard();
       res.status(409);
       throw new Error(`Stock changed for ${product.title} - please review your cart`);
     }
@@ -188,12 +280,23 @@ const createOrder = asyncHandler(async (req, res) => {
     subtotal: total,
     total,
     shippingAddress,
-    paymentMethod: paymentMethod || "stripe",
+    paymentMethod: remaining <= 0 && giftCardApplied > 0 ? "gift_card" : paymentMethod || "stripe",
     paymentStatus,
     stripePaymentIntentId: stripePaymentIntentId || "",
+    giftCardCode: giftCard ? giftCard.code : "",
+    giftCardAmountApplied: giftCardApplied,
   });
 
-  // Create commission + transaction records, update affiliate totals
+  if (giftCard) {
+    try {
+      await GiftCard.findByIdAndUpdate(giftCard._id, {
+        $push: { redemptions: { order: order._id, amount: giftCardApplied, redeemedBy: req.user._id } },
+      });
+    } catch (err) {
+      console.error(`[gift card audit trail] failed for order ${order.orderNumber}: ${err.message}`);
+    }
+  }
+
   let affiliateEarned = 0;
   if (affiliate) {
     for (const item of orderItems) {
@@ -227,7 +330,6 @@ const createOrder = asyncHandler(async (req, res) => {
         notes: "Commission earned from order",
       });
 
-      // Mark the most recent unconverted click for this affiliate/product as converted
       await Click.updateMany(
         {
           affiliate: affiliate._id,
@@ -239,7 +341,6 @@ const createOrder = asyncHandler(async (req, res) => {
     }
   }
 
-  // Sale transaction(s) for each seller
   const sellerTotals = {};
   for (const item of orderItems) {
     const key = item.seller.toString();
@@ -256,9 +357,6 @@ const createOrder = asyncHandler(async (req, res) => {
     });
   }
 
-  // Fire-and-forget notification emails. A failed email should never fail
-  // the order itself - the purchase already succeeded and was paid for, so
-  // we log and move on rather than throwing here.
   (async () => {
     try {
       const { subject, html, text } = orderConfirmationEmail(req.user, order);
@@ -317,7 +415,6 @@ const getOrder = asyncHandler(async (req, res) => {
 const getSellerOrders = asyncHandler(async (req, res) => {
   const orders = await Order.find({ "items.seller": req.user._id }).sort("-createdAt");
 
-  // Trim to only this seller's items/line-totals for clarity
   const trimmed = orders.map((o) => {
     const myItems = o.items.filter((i) => i.seller.toString() === req.user._id.toString());
     const myTotal = myItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
@@ -330,37 +427,3 @@ const getSellerOrders = asyncHandler(async (req, res) => {
       items: myItems,
       myTotal,
     };
-  });
-
-  res.json({ success: true, orders: trimmed });
-});
-
-// @desc    Update order status (fulfillment)
-// @route   PUT /api/orders/:id/status
-// @access  Private (seller of items in order, admin)
-const updateOrderStatus = asyncHandler(async (req, res) => {
-  const order = await Order.findById(req.params.id);
-  if (!order) {
-    res.status(404);
-    throw new Error("Order not found");
-  }
-
-  const isSeller = order.items.some((i) => i.seller.toString() === req.user._id.toString());
-  if (!isSeller && req.user.role !== "admin") {
-    res.status(403);
-    throw new Error("Not authorized to update this order");
-  }
-
-  order.status = req.body.status || order.status;
-  const updated = await order.save();
-  res.json({ success: true, order: updated });
-});
-
-module.exports = {
-  createPaymentIntent,
-  createOrder,
-  getMyOrders,
-  getOrder,
-  getSellerOrders,
-  updateOrderStatus,
-};
