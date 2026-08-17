@@ -426,4 +426,38 @@ const getSellerOrders = asyncHandler(async (req, res) => {
       paymentStatus: o.paymentStatus,
       items: myItems,
       myTotal,
-    };
+   };
+  });
+
+  res.json({ success: true, orders: trimmed });
+});
+
+// @desc    Update order status (fulfillment)
+// @route   PUT /api/orders/:id/status
+// @access  Private (seller of items in order, admin)
+const updateOrderStatus = asyncHandler(async (req, res) => {
+  const order = await Order.findById(req.params.id);
+  if (!order) {
+    res.status(404);
+    throw new Error("Order not found");
+  }
+
+  const isSeller = order.items.some((i) => i.seller.toString() === req.user._id.toString());
+  if (!isSeller && req.user.role !== "admin") {
+    res.status(403);
+    throw new Error("Not authorized to update this order");
+  }
+
+  order.status = req.body.status || order.status;
+  const updated = await order.save();
+  res.json({ success: true, order: updated });
+});
+
+module.exports = {
+  createPaymentIntent,
+  createOrder,
+  getMyOrders,
+  getOrder,
+  getSellerOrders,
+  updateOrderStatus,
+};
