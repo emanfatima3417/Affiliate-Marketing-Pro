@@ -11,6 +11,7 @@ import {
   Receipt,
   TrendingUp,
   Boxes,
+  Gift,
 } from "lucide-react";
 
 export const customerNav = [
@@ -39,5 +40,6 @@ export const adminNav = [
   { href: "/dashboard/admin/products", label: "Inventory", icon: Boxes },
   { href: "/dashboard/admin/orders", label: "Orders", icon: ShoppingBag },
   { href: "/dashboard/admin/affiliates", label: "Affiliates", icon: TrendingUp },
+  { href: "/dashboard/admin/gift-cards", label: "Gift cards", icon: Gift },
   { href: "/dashboard/admin/transactions", label: "Transactions", icon: Receipt },
 ];
